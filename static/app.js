@@ -169,5 +169,11 @@ async function refreshRuns(){const runs=await api('runs');const wasBusy=busy;bus
 $('#stage-filter').insertAdjacentHTML('beforeend',stages.map(s=>`<option>${s}</option>`).join(''));$('#filter').oninput=renderLeads;$('#stage-filter').onchange=renderLeads;
 $('#new-lead').onclick=()=>$('#lead-dialog').showModal();$('#close-dialog').onclick=()=>$('#lead-dialog').close();
 $('#lead-form').onsubmit=async e=>{e.preventDefault();e.submitter.disabled=true;try{await api('leads','POST',Object.fromEntries(new FormData(e.target)));$('#lead-dialog').close();e.target.reset();await refreshLeads();notice('Empresa adicionada ao funil.');}catch(e){notice(e.message,true);}finally{e.submitter.disabled=false;}};
+/* Tema */
+const darkQuery=matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(theme){document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark'||(theme==='auto'&&darkQuery.matches));$('#theme-toggle').textContent={auto:'◐ Tema: automático',light:'☀ Tema: claro',dark:'☾ Tema: escuro'}[theme];}
+$('#theme-toggle').onclick=()=>{const next={auto:'light',light:'dark',dark:'auto'}[document.documentElement.dataset.theme||'auto'];try{localStorage.setItem('prospecta-theme',next);}catch{}applyTheme(next);};
+darkQuery.addEventListener('change',()=>applyTheme(document.documentElement.dataset.theme||'auto'));
+applyTheme(document.documentElement.dataset.theme||'auto');
 async function init(){try{fillSettings(await api('settings'));await Promise.all([refreshLeads(),refreshRuns(),refreshSummary(),refreshConversations()]);connectEvents();}catch(e){notice('Não foi possível carregar o sistema: '+e.message,true);}}
 init();setInterval(()=>{if(!document.hidden){refreshRuns().catch(()=>{});refreshSummary().catch(()=>{});}},5000);
