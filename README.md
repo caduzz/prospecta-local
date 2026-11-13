@@ -15,7 +15,25 @@ Abra http://127.0.0.1:8000. Use apenas um processo do servidor. Precisa de Pytho
 2. Cadastre uma ou ambas as chaves. Selecione OpenAI ou Gemini e salve. Campo vazio preserva a chave; a opção Remover apaga a chave correspondente.
 3. Use **Testar conexão salva** para conferir autenticação e acesso ao modelo. Esse teste faz uma chamada real de texto, que pode ser cobrada. Não testa busca web.
 4. Em **Agente de prospecção**, preencha segmento, região e critérios e inicie uma busca.
-5. Acompanhe os resultados em **Oportunidades** e altere a etapa comercial. Os rascunhos podem ser copiados; o sistema não envia mensagens.
+5. Acompanhe os resultados em **Oportunidades**: cada empresa traz site, e-mail, WhatsApp e Instagram quando publicados. Complete o que faltar em **Editar contatos**.
+6. Configure os canais em **Configurações** e dispare em **Disparos**. As respostas aparecem em **Conversas** em tempo real.
+
+No Windows, sem o `start.sh`:
+
+```sh
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+## Disparo, follow-up e conversas
+
+- **E-mail:** SMTP para enviar e IMAP para ler as respostas (Gmail/Outlook exigem senha de app). As respostas são associadas pelo remetente e lidas sem marcar como lidas.
+- **WhatsApp:** Evolution API v2 rodando localmente (`docker compose -f docker-compose.evolution.yml up -d`, depois crie a instância e leia o QR code em http://localhost:8080/manager). Use um número dedicado: disparo em massa por API não oficial pode levar a bloqueio.
+- **Fila:** um envio por vez, com intervalo mínimo aleatorizado, janela de horário e limite diário configuráveis.
+- **Follow-up:** quem não responde recebe a mensagem de follow-up a cada N dias, até o máximo configurado; depois vai para “Sem resposta”. Qualquer resposta interrompe a cadência.
+- **Classificação:** respostas viram “Interessado”, “Recusou” ou “Respondeu” (palavras-chave e, se houver chave de IA, o modelo). Recusas cancelam a fila daquela empresa e movem para “Perdido”. Você pode corrigir o status na conversa.
+- **Tempo real:** a tela de Conversas recebe eventos do servidor (SSE); e-mails são verificados a cada 30 s e o WhatsApp a cada 30 s.
 
 ## O que está implementado
 
