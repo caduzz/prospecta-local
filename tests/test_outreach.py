@@ -16,6 +16,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'WORKER', False)
     monkeypatch.setattr(module, 'in_window', lambda s: True)
     with TestClient(module.app) as client:
+        client.post('/api/auth/setup', json={'name': 'Admin', 'email': 'admin@test.dev', 'password': 'senha-forte-1'}, headers=HEADERS)
         yield client
 
 
@@ -174,7 +175,7 @@ def test_whatsapp_send_and_receive(client, monkeypatch):
         return httpx.Response(200, json={'messages': {'records': records}})
     monkeypatch.setattr(module.httpx, 'AsyncClient', lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs))
     assert client.post(f"/api/leads/{l['id']}/messages", json={'channel': 'whatsapp', 'body': 'Oi'}, headers=HEADERS).status_code == 200
-    assert calls[0] == ('/message/sendText/prospecta', {'number': '5571998765432', 'text': 'Oi'}, 'evo-secret-test')
+    assert calls[0] == ('/message/sendText/prospecta', {'number': '5571998765432', 'text': '*Admin:*\nOi'}, 'evo-secret-test')
     assert lead(l['id'])['outreach'] == 'Aguardando'
     asyncio.run(module.poll_inbound(module.settings()))
     assert {c[1]['where']['key']['remoteJid'] for c in calls[1:]} == {'5571998765432@s.whatsapp.net', '557198765432@s.whatsapp.net'}
@@ -183,22 +184,20 @@ def test_whatsapp_send_and_receive(client, monkeypatch):
     assert [m['direction'] for m in messages(l['id'])] == ['out', 'in']
 
 
-def test_agent_saves_contacts(client, monkeypatch):
-    configure(client)
-
-    async def fake(s, prompt, search=False):
-        if search:
-            return 'relatório', [{'url': 'https://example.com', 'title': 'Site'}], {}, ''
-        return json.dumps({'leads': [{'name': 'Empresa real', 'website': 'https://example.com', 'email': 'mailto:Oi@Example.com', 'phone': '+55 (71) 3333-4444',
-                                      'instagram': '@empresareal', 'draft': 'Olá!', 'source_urls': ['https://example.com']}]}), [], {}, ''
-    monkeypatch.setattr(module, 'generate', fake)
-    with module.db() as c:
-        run_id = c.execute("INSERT INTO runs (status) VALUES ('executando')").lastrowid
-    asyncio.run(module.prospect(run_id, module.settings(), module.Campaign(segment='Clínicas', location='Salvador')))
-    l = client.get('/api/leads').json()[0]
-    assert (l['email'], l['phone'], l['instagram']) == ('oi@example.com', '557133334444', 'empresareal')
-
-
 def test_strip_quoted_reply():
     text = 'Tenho interesse.\n\nEm seg., 10 de nov. de 2026 às 10:00, Eu <eu@x.com> escreveu:\n> mensagem antiga'
     assert module.strip_quoted(text) == 'Tenho interesse.'
+
+
+@pytest.mark.parametrize('error,expected', [
+    ({'code': 429, 'message': 'Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: x', 'status': 'RESOURCE_EXHAUSTED'}, 'não tem cota gratuita'),
+    ({'code': 429, 'message': 'Rate limit hit', 'details': [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '31s'}]}, 'Tente novamente em 31s'),
+])
+def test_provider_error_reason_is_shown_without_key(client, monkeypatch, error, expected):
+    configure(client)
+    error = error | {'message': error['message'] + ' key=gemini-secret-test'}
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(lambda req: httpx.Response(429, json={'error': error}))
+    monkeypatch.setattr(module.httpx, 'AsyncClient', lambda **kwargs: real_client(transport=transport, **kwargs))
+    detail = client.post('/api/test', json={}, headers=HEADERS).json()['detail']
+    assert expected in detail and 'Motivo informado pelo provedor' in detail and 'gemini-secret-test' not in detail

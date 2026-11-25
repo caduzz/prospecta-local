@@ -1,14 +1,14 @@
 # Evolution API (WhatsApp) para o Prospecta Local.
-# Uso: troque TROQUE-ESTA-CHAVE, rode `docker compose -f docker-compose.evolution.yml up -d`
+# Uso: crie um arquivo .env com EVOLUTION_API_KEY=<chave aleatória>, rode `docker compose -f docker-compose.evolution.yml up -d`
 # e abra http://localhost:8080/manager para criar a instância e ler o QR code.
 services:
   evolution:
-    image: atendai/evolution-api:v2.2.3
+    image: evoapicloud/evolution-api:v2.3.7
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
     environment:
-      AUTHENTICATION_API_KEY: TROQUE-ESTA-CHAVE
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?Crie o arquivo .env com EVOLUTION_API_KEY}
       SERVER_URL: http://localhost:8080
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: postgresql
