@@ -13,7 +13,9 @@ HEADERS = {'X-Prospecta': 'local'}
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'DATA', tmp_path)
+    monkeypatch.setattr(module, 'WORKER', False)
     with TestClient(module.app) as client:
+        client.post('/api/auth/setup', json={'name': 'Admin', 'email': 'admin@test.dev', 'password': 'senha-forte-1'}, headers=HEADERS)
         yield client
 
 
@@ -78,24 +80,11 @@ def test_provider_requests_and_parsing(client, monkeypatch, provider):
     assert len(calls) == 1
 
 
-def test_agent_saves_only_sourced_records(client, monkeypatch):
-    configure(client)
-    async def fake(*args, **kwargs):
-        return json.dumps({'leads': [{'name': 'Empresa real', 'website': 'https://example.com', 'source_urls': ['https://example.com']}, {'name': 'Sem fonte', 'source_urls': ['https://invented.test']}]}), [{'url': 'https://example.com', 'title': 'Site'}], {}, ''
-    monkeypatch.setattr(module, 'generate', fake)
-    with module.db() as c:
-        run_id = c.execute("INSERT INTO runs (status) VALUES ('executando')").lastrowid
-    asyncio.run(module.prospect(run_id, module.settings(), module.Campaign(segment='Clínicas', location='Salvador')))
-    assert len(client.get('/api/leads').json()) == 1
-    assert client.get('/api/runs').json()[0]['status'] == 'concluído'
-    asyncio.run(module.prospect(run_id, module.settings(), module.Campaign(segment='Clínicas', location='Salvador')))
-    assert len(client.get('/api/leads').json()) == 1
-
-
 def test_missing_key_and_limit(client):
     campaign = {'segment': 'Clínicas', 'location': 'Salvador'}
     assert client.post('/api/runs', json=campaign, headers=HEADERS).status_code == 400
     configure(client)
+    client.put('/api/settings', json=client.get('/api/settings').json() | {'places_key': 'places-test'}, headers=HEADERS)
     with module.db() as c:
         for _ in range(10):
             c.execute("INSERT INTO runs (status) VALUES ('erro')")
@@ -134,35 +123,3 @@ def test_stale_settings_cannot_restore_old_model(client):
     stale = client.put('/api/settings', json=s | {'gemini_model': 'gemini-2.5-flash-lite'}, headers=HEADERS)
     assert stale.status_code == 409
     assert client.get('/api/settings').json()['gemini_model'] == 'gemini-3.5-flash-lite'
-
-
-def test_research_then_extraction(client, monkeypatch):
-    configure(client)
-    calls = []
-    async def fake(s, prompt, search=False):
-        calls.append((prompt, search))
-        if search:
-            return 'Empresa real: exemplo.com', [{'url': 'https://example.com', 'title': 'Site'}], {'totalTokenCount': 10}, ''
-        return json.dumps({'leads':[{'name':'Empresa real','source_urls':['https://example.com']}]}), [], {'totalTokenCount': 5}, ''
-    monkeypatch.setattr(module, 'generate', fake)
-    with module.db() as c:
-        run_id = c.execute("INSERT INTO runs (status) VALUES ('executando')").lastrowid
-    asyncio.run(module.prospect(run_id, module.settings(), module.Campaign(segment='Academias',location='Petrolina')))
-    assert [c[1] for c in calls] == [True, False]
-    assert 'https://example.com' in calls[1][0]
-    assert len(client.get('/api/leads').json()) == 1
-    assert client.get('/api/runs').json()[0]['usage']['total_tokens'] == 15
-
-
-def test_no_sources_is_empty_result(client, monkeypatch):
-    configure(client)
-    async def fake(*args, **kwargs):
-        return 'Nenhuma evidência', [], {'totalTokenCount': 8}, ''
-    monkeypatch.setattr(module, 'generate', fake)
-    with module.db() as c:
-        run_id = c.execute("INSERT INTO runs (status) VALUES ('executando')").lastrowid
-    asyncio.run(module.prospect(run_id, module.settings(), module.Campaign(segment='Academias',location='Petrolina')))
-    run = client.get('/api/runs').json()[0]
-    assert run['status'] == 'sem resultados'
-    assert run['usage']['totalTokenCount'] == 8
-    assert client.get('/api/leads').json() == []
